@@ -4,3 +4,5 @@ DerivedData/
 *.xcodeproj/
 xcuserdata/
 .DS_Store
+ingest/node_modules/
+ingest/reports/
