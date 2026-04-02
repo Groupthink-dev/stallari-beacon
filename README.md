@@ -1,6 +1,24 @@
-# Sidereal Beacon
+<p align="center">
+  <a href="https://sidereal.cc">
+    <img src="assets/sidereal-beacon-icon.png" width="128" alt="Sidereal Beacon">
+  </a>
+</p>
 
-Privacy-first crash reporting, diagnostics, and feedback for [Sidereal](https://sidereal.cc) — the agentic productivity platform for macOS.
+<h1 align="center">Sidereal Beacon</h1>
+
+<p align="center">
+  <a href="https://sidereal.cc"><img src="https://img.shields.io/badge/website-sidereal.cc-0066CC" alt="sidereal.cc"></a>
+  <img src="https://img.shields.io/badge/macOS-14.0%2B-blue" alt="macOS 14.0+">
+  <img src="https://img.shields.io/badge/Swift-5.10-F05138" alt="Swift 5.10">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+  <img src="https://img.shields.io/badge/privacy-opt--in%20only-8B5CF6" alt="Privacy: Opt-in Only">
+</p>
+
+<p align="center">
+  Privacy-first crash reporting, diagnostics, and feedback for <a href="https://sidereal.cc">Sidereal</a> — the agentic productivity platform for macOS.
+</p>
+
+---
 
 Beacon is the open-source telemetry layer that lets Sidereal learn from failures without compromising user trust. Every byte of data collected is defined in this repo, auditable by anyone, and controlled entirely by the user.
 
@@ -283,6 +301,16 @@ Beacon is designed around a simple principle: **the user's machine is theirs, no
 - The ingest endpoint accepts anonymous POST — no auth tokens, no user tracking
 - We do not correlate reports across devices or sessions
 - The anonymous device ID is a random UUID generated once, stored locally, and never linked to any identity
+
+## Security & Audit
+
+| Date | Scope | Performed by | Notes |
+|------|-------|-------------|-------|
+| 2026-04-03 | Initial architecture review | Internal (system-architect) | Scrubber pattern coverage, consent model design, transport security |
+
+This table tracks when `sidereal-beacon` last underwent security and operations analysis. The scrubber module (`Sources/SiderealBeacon/Scrubber/`) is the highest-trust component — any change to scrubber patterns or PII handling should trigger a review.
+
+To request an independent audit or report a security concern, open a [security advisory](https://github.com/groupthink-dev/sidereal-beacon/security/advisories/new).
 
 ## License
 
