@@ -81,6 +81,9 @@ public enum GuardianAction: Sendable {
     /// Process is within budget — no action needed.
     case none
 
+    /// Process at 80%+ of budget — early warning for proactive cleanup (memory discipline P3).
+    case preWarn(ProcessHealth)
+
     /// Process exceeded a budget threshold — first warning before escalation.
     case warn(ProcessHealth)
 
@@ -126,6 +129,9 @@ public actor ProcessGuardian {
     /// Currently registered processes keyed by PID.
     private var processes: [pid_t: ManagedProcess] = [:]
 
+    /// PIDs at 80%+ of budget (pre-warn issued, pending escalation to warn).
+    private var preWarnedPIDs: Set<pid_t> = []
+
     /// PIDs that were over budget on the previous poll cycle (pending kill escalation).
     private var warnedPIDs: Set<pid_t> = []
 
@@ -160,6 +166,7 @@ public actor ProcessGuardian {
     /// Unregister a subprocess by PID.
     public func unregister(pid: pid_t) {
         processes.removeValue(forKey: pid)
+        preWarnedPIDs.remove(pid)
         warnedPIDs.remove(pid)
         healthCache.removeValue(forKey: pid)
     }
@@ -249,19 +256,31 @@ public actor ProcessGuardian {
 
             newHealthCache[pid] = health
 
-            // Enforcement: warn → kill escalation.
+            // Enforcement: preWarn (80%) → warn (100%) → kill escalation.
             if overRSS || overCPU {
                 if warnedPIDs.contains(pid) {
                     // Already warned on a previous poll — escalate to kill.
                     let reason = Self.buildKillReason(health: health, managed: managed)
                     await delegate?.guardian(self, didDetect: .kill(health, reason: reason))
                 } else {
-                    // First offence — warn and mark.
+                    // First offence at 100% — warn and mark.
                     warnedPIDs.insert(pid)
+                    preWarnedPIDs.remove(pid)
                     await delegate?.guardian(self, didDetect: .warn(health))
                 }
             } else {
-                // Back within budget — clear the warning flag.
+                // Check 80% pre-warn threshold (memory discipline P3).
+                let rssRatio = managed.rssCeilingMB > 0
+                    ? Double(rssMB) / Double(managed.rssCeilingMB) : 0
+                let cpuRatio = managed.cpuCeilingPercent > 0
+                    ? cpuPercent / managed.cpuCeilingPercent : 0
+                if max(rssRatio, cpuRatio) >= 0.8 && !preWarnedPIDs.contains(pid) {
+                    preWarnedPIDs.insert(pid)
+                    await delegate?.guardian(self, didDetect: .preWarn(health))
+                } else if max(rssRatio, cpuRatio) < 0.8 {
+                    // Back well within budget — clear all flags.
+                    preWarnedPIDs.remove(pid)
+                }
                 warnedPIDs.remove(pid)
             }
         }
