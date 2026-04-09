@@ -22,8 +22,8 @@ public struct BeaconConfig: Codable, Sendable, Equatable {
     public let deviceId: String
 
     public init(
-        crashReportsEnabled: Bool = false,
-        diagnosticsEnabled: Bool = false,
+        crashReportsEnabled: Bool = true,
+        diagnosticsEnabled: Bool = true,
         reviewBeforeSending: Bool = true,
         ingestUrl: String = "https://beacon.sidereal.cc/api/v1/reports",
         deviceId: String = UUID().uuidString
