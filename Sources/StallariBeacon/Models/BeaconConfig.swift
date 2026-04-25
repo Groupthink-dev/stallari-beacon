@@ -22,8 +22,8 @@ public struct BeaconConfig: Codable, Sendable, Equatable {
     public let deviceId: String
 
     public init(
-        crashReportsEnabled: Bool = true,
-        diagnosticsEnabled: Bool = true,
+        crashReportsEnabled: Bool = false,
+        diagnosticsEnabled: Bool = false,
         reviewBeforeSending: Bool = true,
         ingestUrl: String = "https://beacon.stallari.app/api/v1/reports",
         deviceId: String = UUID().uuidString

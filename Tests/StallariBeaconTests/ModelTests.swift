@@ -247,9 +247,206 @@ struct ModelTests {
 
     // MARK: - Beacon version
 
-    @Test("Beacon version is 1.0.0")
+    @Test("Beacon version is 1.1.0")
     func beaconVersion() {
-        #expect(BeaconReport.beaconVersion == "1.0.0")
+        #expect(BeaconReport.beaconVersion == "1.1.0")
+    }
+
+    // MARK: - 1.1.0 fields
+
+    @Test("1.1.0 report Codable round-trip with all new fields")
+    func report110CodableRoundTrip() throws {
+        let packs = [
+            InstalledPack(
+                name: "acme-analytics",
+                version: "1.2.0",
+                installedAt: Date(timeIntervalSinceReferenceDate: 799_000_000),
+                installState: .fresh,
+                source: .marketplace
+            ),
+            InstalledPack(
+                name: "dev-tools",
+                version: "0.3.1",
+                installedAt: Date(timeIntervalSinceReferenceDate: 798_000_000),
+                installState: .upgraded(from: "0.3.0"),
+                source: .dev
+            ),
+        ]
+
+        let original = BeaconReport(
+            reportId: "brpt_v110test",
+            type: .crash,
+            timestamp: Date(timeIntervalSinceReferenceDate: 800_000_000),
+            app: AppInfo(version: "0.71.2.0", component: "daemon"),
+            system: SystemInfo(osVersion: "15.3.1", arch: "arm64", memoryGb: 36, memoryPressure: .nominal),
+            payload: .crash(CrashReport(
+                type: .signalAbort,
+                resourceSnapshot: ResourceSnapshot(rssMb: 100, cpuPercent: 30.0, subprocessCount: 2, totalManagedRssMb: 200)
+            )),
+            installId: "ins_a1b2c3d4e5f67890",
+            installedPacks: packs,
+            activePack: PackRef(name: "acme-analytics", version: "1.2.0"),
+            rolloutChannel: "beta"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(original)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(BeaconReport.self, from: data)
+
+        #expect(decoded.reportId == original.reportId)
+        #expect(decoded.installId == "ins_a1b2c3d4e5f67890")
+        #expect(decoded.installedPacks == packs)
+        #expect(decoded.activePack == PackRef(name: "acme-analytics", version: "1.2.0"))
+        #expect(decoded.rolloutChannel == "beta")
+        #expect(decoded.payload == original.payload)
+    }
+
+    @Test("1.0.0 report deserializes into 1.1.0 struct with nil new fields")
+    func legacyReportDecodesCleanly() throws {
+        // Simulate a 1.0.0 report JSON — no install_id, installed_packs, active_pack, rollout_channel.
+        let json = """
+        {
+            "beacon_version": "1.0.0",
+            "report_id": "brpt_legacy01",
+            "type": "diagnostic",
+            "timestamp": "2026-03-15T10:00:00Z",
+            "app": { "version": "0.44.3.3", "component": "daemon" },
+            "system": { "os_version": "15.3.1", "arch": "arm64", "memory_gb": 36, "memory_pressure": "nominal" },
+            "payload": {
+                "subprocess_count": 3,
+                "total_managed_rss_mb": 512,
+                "system_memory_pressure": "nominal",
+                "dispatch_stats": { "jobs_started": 10, "jobs_succeeded": 9, "jobs_failed": 1, "since": "2026-03-15T09:00:00Z" },
+                "mcp_availability": []
+            }
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(BeaconReport.self, from: Data(json.utf8))
+
+        #expect(decoded.reportId == "brpt_legacy01")
+        #expect(decoded.type == .diagnostic)
+        #expect(decoded.installId == nil)
+        #expect(decoded.installedPacks == nil)
+        #expect(decoded.activePack == nil)
+        #expect(decoded.rolloutChannel == nil)
+    }
+
+    @Test("1.1.0 JSON contains new fields when populated")
+    func report110JsonContainsNewFields() throws {
+        let report = BeaconReport(
+            reportId: "brpt_jsonv110",
+            type: .feedback,
+            timestamp: Date(timeIntervalSinceReferenceDate: 800_000_000),
+            app: AppInfo(version: "1.0.0", component: "app"),
+            system: SystemInfo(osVersion: "15.3.1", arch: "arm64", memoryGb: 36, memoryPressure: .nominal),
+            payload: .feedback(FeedbackReport(
+                message: "Great app!",
+                reaction: .loveIt,
+                contextScreen: nil,
+                includesDiagnosticBundle: false
+            )),
+            installId: "ins_deadbeefcafebabe",
+            activePack: PackRef(name: "acme", version: "1.0.0"),
+            rolloutChannel: "stable"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(report)
+        let json = String(data: data, encoding: .utf8)!
+
+        #expect(json.contains("\"install_id\""))
+        #expect(json.contains("ins_deadbeefcafebabe"))
+        #expect(json.contains("\"active_pack\""))
+        #expect(json.contains("\"rollout_channel\""))
+        #expect(json.contains("\"stable\""))
+    }
+
+    @Test("1.1.0 JSON omits new fields when nil")
+    func report110JsonOmitsNilFields() throws {
+        let report = BeaconReport(
+            reportId: "brpt_jsonnil1",
+            type: .crash,
+            timestamp: Date(timeIntervalSinceReferenceDate: 800_000_000),
+            app: AppInfo(version: "1.0.0", component: "test"),
+            system: SystemInfo(osVersion: "15.3.1", arch: "arm64", memoryGb: 36, memoryPressure: .nominal),
+            payload: .crash(CrashReport(
+                type: .signalAbort,
+                resourceSnapshot: ResourceSnapshot(rssMb: 100, cpuPercent: 30.0, subprocessCount: 2, totalManagedRssMb: 200)
+            ))
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(report)
+        let json = String(data: data, encoding: .utf8)!
+
+        #expect(!json.contains("install_id"))
+        #expect(!json.contains("installed_packs"))
+        #expect(!json.contains("active_pack"))
+        #expect(!json.contains("rollout_channel"))
+    }
+
+    // MARK: - InstalledPack
+
+    @Test("InstalledPack Codable round-trip with all install states")
+    func installedPackCodableRoundTrip() throws {
+        let packs = [
+            InstalledPack(name: "a", version: "1.0.0", installedAt: Date(timeIntervalSinceReferenceDate: 800_000_000), installState: .fresh, source: .marketplace),
+            InstalledPack(name: "b", version: "2.0.0", installedAt: Date(timeIntervalSinceReferenceDate: 800_000_000), installState: .upgraded(from: "1.9.0"), source: .sideload),
+            InstalledPack(name: "c", version: "3.0.0", installedAt: Date(timeIntervalSinceReferenceDate: 800_000_000), installState: .reinstalled, source: .dev),
+        ]
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(packs)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode([InstalledPack].self, from: data)
+
+        #expect(decoded == packs)
+    }
+
+    @Test("PackSource raw values match wire format")
+    func packSourceRawValues() {
+        #expect(PackSource.marketplace.rawValue == "marketplace")
+        #expect(PackSource.sideload.rawValue == "sideload")
+        #expect(PackSource.dev.rawValue == "dev")
+    }
+
+    // MARK: - InstallID
+
+    @Test("InstallID.generate produces valid format")
+    func installIdFormat() {
+        let id = InstallID.generate()
+        #expect(id.hasPrefix("ins_"))
+        #expect(id.count == 20)
+        #expect(InstallID.isValid(id))
+    }
+
+    @Test("InstallID.generate produces unique values")
+    func installIdUniqueness() {
+        let ids = (0 ..< 100).map { _ in InstallID.generate() }
+        let unique = Set(ids)
+        #expect(unique.count == 100)
+    }
+
+    @Test("InstallID.isValid rejects malformed IDs")
+    func installIdValidation() {
+        #expect(!InstallID.isValid(""))
+        #expect(!InstallID.isValid("ins_"))
+        #expect(!InstallID.isValid("ins_short"))
+        #expect(!InstallID.isValid("bad_a1b2c3d4e5f67890"))
+        #expect(!InstallID.isValid("ins_ZZZZZZZZZZZZZZZZ"))
+        #expect(InstallID.isValid("ins_0123456789abcdef"))
     }
 
     // MARK: - JSON key format

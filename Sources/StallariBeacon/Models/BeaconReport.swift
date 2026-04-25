@@ -30,18 +30,22 @@ public enum ReportPayload: Sendable, Equatable {
 ///
 /// ```json
 /// {
-///   "beacon_version": "1.0.0",
+///   "beacon_version": "1.1.0",
 ///   "report_id": "brpt_a1b2c3d4",
 ///   "type": "crash",
 ///   "timestamp": "2026-04-03T10:00:00Z",
 ///   "app": { ... },
 ///   "system": { ... },
-///   "payload": { ... }
+///   "payload": { ... },
+///   "install_id": "ins_a1b2c3d4e5f67890",
+///   "installed_packs": [{ "name": "acme", "version": "1.2.0", ... }],
+///   "active_pack": { "name": "acme", "version": "1.2.0" },
+///   "rollout_channel": "stable"
 /// }
 /// ```
 public struct BeaconReport: Sendable, Equatable {
     /// SDK version that produced this report.
-    public static let beaconVersion = "1.0.0"
+    public static let beaconVersion = "1.1.0"
 
     /// Report ID with `brpt_` prefix and 8 random hex characters.
     public let reportId: String
@@ -61,13 +65,36 @@ public struct BeaconReport: Sendable, Equatable {
     /// Type-specific payload.
     public let payload: ReportPayload
 
+    // MARK: - 1.1.0 fields (all optional for backwards compatibility)
+
+    /// Stable per-install identifier. Generated once on first run, persisted in
+    /// app support, opaque to the customer. Survives harness upgrades and pack
+    /// changes; reset only on full reinstall or user-initiated wipe.
+    public let installId: String?
+
+    /// Pack inventory at the time the report was emitted.
+    public let installedPacks: [InstalledPack]?
+
+    /// The pack that was active in the foreground tool chain when the report was
+    /// generated, if attribution is possible. Nil for global daemon crashes that
+    /// can't be tied to a single pack.
+    public let activePack: PackRef?
+
+    /// Rollout cohort set by the operator at registry time (e.g. "stable",
+    /// "beta", "canary"). Defaults to "stable".
+    public let rolloutChannel: String?
+
     public init(
         reportId: String? = nil,
         type: ReportType,
         timestamp: Date = Date(),
         app: AppInfo,
         system: SystemInfo,
-        payload: ReportPayload
+        payload: ReportPayload,
+        installId: String? = nil,
+        installedPacks: [InstalledPack]? = nil,
+        activePack: PackRef? = nil,
+        rolloutChannel: String? = nil
     ) {
         self.reportId = reportId ?? Self.generateReportId()
         self.type = type
@@ -75,6 +102,10 @@ public struct BeaconReport: Sendable, Equatable {
         self.app = app
         self.system = system
         self.payload = payload
+        self.installId = installId
+        self.installedPacks = installedPacks
+        self.activePack = activePack
+        self.rolloutChannel = rolloutChannel
     }
 
     // MARK: - ID generation
@@ -99,6 +130,10 @@ extension BeaconReport: Codable {
         case app
         case system
         case payload
+        case installId = "install_id"
+        case installedPacks = "installed_packs"
+        case activePack = "active_pack"
+        case rolloutChannel = "rollout_channel"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -120,6 +155,13 @@ extension BeaconReport: Codable {
         case .security(let report):
             try container.encode(report, forKey: .payload)
         }
+
+        // 1.1.0 fields — only emitted when non-nil to keep 1.0.0-shaped output
+        // for reports that don't have them.
+        try container.encodeIfPresent(installId, forKey: .installId)
+        try container.encodeIfPresent(installedPacks, forKey: .installedPacks)
+        try container.encodeIfPresent(activePack, forKey: .activePack)
+        try container.encodeIfPresent(rolloutChannel, forKey: .rolloutChannel)
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,5 +184,11 @@ extension BeaconReport: Codable {
         case .security:
             payload = .security(try container.decode(SecurityReport.self, forKey: .payload))
         }
+
+        // 1.1.0 fields — tolerate absence for backwards compatibility with 1.0.0 reports.
+        installId = try container.decodeIfPresent(String.self, forKey: .installId)
+        installedPacks = try container.decodeIfPresent([InstalledPack].self, forKey: .installedPacks)
+        activePack = try container.decodeIfPresent(PackRef.self, forKey: .activePack)
+        rolloutChannel = try container.decodeIfPresent(String.self, forKey: .rolloutChannel)
     }
 }
