@@ -20,6 +20,15 @@ public protocol ProcessGuardianProvider: Sendable {
 
     /// Dispatch job statistics for the current reporting window.
     var dispatchStats: DispatchStats { get async }
+
+    /// Per-daemon health rows surfaced as ``HealthSnapshot.daemons`` on the
+    /// next ``DiagnosticReport``. Default implementation returns an empty
+    /// array so existing conformers compile unchanged.
+    func daemonHealthStates() async -> [DaemonHealth]
+}
+
+extension ProcessGuardianProvider {
+    public func daemonHealthStates() async -> [DaemonHealth] { [] }
 }
 
 // MARK: - DiagnosticCollector
@@ -34,7 +43,7 @@ public actor DiagnosticCollector {
 
     // MARK: - Properties
 
-    private let guardian: any ProcessGuardianProvider
+    private var guardian: any ProcessGuardianProvider
     private let interval: TimeInterval
     private var timerTask: Task<Void, Never>?
 
@@ -52,6 +61,11 @@ public actor DiagnosticCollector {
     public init(guardian: any ProcessGuardianProvider, interval: TimeInterval = 3600) {
         self.guardian = guardian
         self.interval = interval
+    }
+
+    /// Replaces the guardian provider. Effective on the next snapshot.
+    public func setGuardian(_ provider: any ProcessGuardianProvider) {
+        self.guardian = provider
     }
 
     // MARK: - Lifecycle
@@ -104,13 +118,24 @@ public actor DiagnosticCollector {
         let mcpStatuses = await guardian.mcpStatuses
         let stats = await guardian.dispatchStats
         let pressure = SystemInfo.current().memoryPressure
+        let daemonStates = await guardian.daemonHealthStates()
+
+        let health: HealthSnapshot? = daemonStates.isEmpty
+            ? nil
+            : HealthSnapshot(
+                snapshotAt: Date(),
+                daemons: daemonStates,
+                lensLockContentionRate: nil,
+                healthLoopTickRate: nil
+            )
 
         return DiagnosticReport(
             subprocessCount: subprocessCount,
             totalManagedRssMb: totalManagedRss,
             systemMemoryPressure: pressure,
             dispatchStats: stats,
-            mcpAvailability: mcpStatuses
+            mcpAvailability: mcpStatuses,
+            health: health
         )
     }
 }

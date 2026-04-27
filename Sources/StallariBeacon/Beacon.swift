@@ -300,6 +300,18 @@ public actor Beacon {
         await flushPending()
     }
 
+    // MARK: - Guardian Provider
+
+    /// Installs a richer ``ProcessGuardianProvider`` to back the diagnostic
+    /// collector. Replaces the default ``BeaconGuardianBridge`` so host apps
+    /// can surface MCP statuses, dispatch stats, and per-daemon health states.
+    ///
+    /// Safe to call before or after ``start()``. Takes effect on the next
+    /// snapshot — the in-flight snapshot (if any) keeps the previous provider.
+    public func setGuardianProvider(_ provider: any ProcessGuardianProvider) async {
+        await diagnosticCollector.setGuardian(provider)
+    }
+
     // MARK: - Process Guardian
 
     /// Registers a subprocess for resource monitoring.
