@@ -71,18 +71,22 @@ public struct DiagnosticReport: Codable, Sendable, Equatable {
     /// Availability of configured MCP servers.
     public let mcpAvailability: [MCPStatus]
 
+    public let health: HealthSnapshot?
+
     public init(
         subprocessCount: Int,
         totalManagedRssMb: Int,
         systemMemoryPressure: MemoryPressure,
         dispatchStats: DispatchStats,
-        mcpAvailability: [MCPStatus] = []
+        mcpAvailability: [MCPStatus] = [],
+        health: HealthSnapshot? = nil
     ) {
         self.subprocessCount = subprocessCount
         self.totalManagedRssMb = totalManagedRssMb
         self.systemMemoryPressure = systemMemoryPressure
         self.dispatchStats = dispatchStats
         self.mcpAvailability = mcpAvailability
+        self.health = health
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -91,5 +95,26 @@ public struct DiagnosticReport: Codable, Sendable, Equatable {
         case systemMemoryPressure = "system_memory_pressure"
         case dispatchStats = "dispatch_stats"
         case mcpAvailability = "mcp_availability"
+        case health
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        subprocessCount = try container.decode(Int.self, forKey: .subprocessCount)
+        totalManagedRssMb = try container.decode(Int.self, forKey: .totalManagedRssMb)
+        systemMemoryPressure = try container.decode(MemoryPressure.self, forKey: .systemMemoryPressure)
+        dispatchStats = try container.decode(DispatchStats.self, forKey: .dispatchStats)
+        mcpAvailability = try container.decodeIfPresent([MCPStatus].self, forKey: .mcpAvailability) ?? []
+        health = try container.decodeIfPresent(HealthSnapshot.self, forKey: .health)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(subprocessCount, forKey: .subprocessCount)
+        try container.encode(totalManagedRssMb, forKey: .totalManagedRssMb)
+        try container.encode(systemMemoryPressure, forKey: .systemMemoryPressure)
+        try container.encode(dispatchStats, forKey: .dispatchStats)
+        try container.encode(mcpAvailability, forKey: .mcpAvailability)
+        try container.encodeIfPresent(health, forKey: .health)
     }
 }

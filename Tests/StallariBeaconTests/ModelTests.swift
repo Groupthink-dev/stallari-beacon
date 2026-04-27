@@ -247,9 +247,9 @@ struct ModelTests {
 
     // MARK: - Beacon version
 
-    @Test("Beacon version is 1.1.0")
+    @Test("Beacon version is 1.2.0")
     func beaconVersion() {
-        #expect(BeaconReport.beaconVersion == "1.1.0")
+        #expect(BeaconReport.beaconVersion == "1.2.0")
     }
 
     // MARK: - 1.1.0 fields

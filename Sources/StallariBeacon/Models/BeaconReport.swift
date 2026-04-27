@@ -45,7 +45,7 @@ public enum ReportPayload: Sendable, Equatable {
 /// ```
 public struct BeaconReport: Sendable, Equatable {
     /// SDK version that produced this report.
-    public static let beaconVersion = "1.1.0"
+    public static let beaconVersion = "1.2.0"
 
     /// Report ID with `brpt_` prefix and 8 random hex characters.
     public let reportId: String
