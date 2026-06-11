@@ -116,7 +116,7 @@ struct SenderGateTests {
         #expect(pending.count == 5)
     }
 
-    /// `.permitted` (or `nil` gate) returns the full pending list — the
+    /// An explicit `.permitted` gate returns the full pending list — the
     /// gate is fully transparent. We don't drive `sendAllPending()` here
     /// because the URL session would attempt real I/O against an
     /// unreachable host; testing `sendableReports()` is the canonical
@@ -141,11 +141,38 @@ struct SenderGateTests {
         #expect(sendable.count == 3)
         let ids = Set(sendable.map(\.reportId))
         #expect(ids == ["c-1", "d-1", "f-1"])
+    }
 
-        // Sanity check: a `nil` gate behaves identically to `.permitted`.
-        let unmediated = ReportSender(config: makeConfig(), store: store)
-        let unmediatedSendable = try await unmediated.sendableReports()
-        #expect(unmediatedSendable.count == 3)
+    /// AUD-05-05 / CONV-19 — a `nil` gate is **fail-closed**: a sender wired
+    /// without an explicit ``OutboundGate`` suppresses every flush and never
+    /// touches the network, even for reports the legacy ``ConsentGate`` would
+    /// always allow (`.feedback`, `.security`). Before DD-397 Phase C the
+    /// default was `.permitted`, which let an external SDK consumer phone
+    /// home unconsented merely by forgetting to wire the gate.
+    @Test("No gate wired is fail-closed (suppressed)")
+    func noGateWiredIsFailClosed() async throws {
+        let (store, cleanup) = makeStore()
+        defer { cleanup() }
+
+        try await store.save(makeReport(.crash, id: "c-1"))
+        try await store.save(makeReport(.diagnostic, id: "d-1"))
+        try await store.save(makeReport(.feedback, id: "f-1"))
+        try await store.save(makeReport(.security, id: "s-1"))
+
+        // No outboundGate — the SDK default.
+        let sender = ReportSender(config: makeConfig(), store: store)
+
+        let sendable = try await sender.sendableReports()
+        #expect(sendable.isEmpty)
+
+        let result = try await sender.sendAllPending()
+        #expect(result.sent == 0)
+        #expect(result.failed == 0)
+        #expect(result.errors.isEmpty)
+
+        // Nothing left the device — all four reports remain pending.
+        let pending = try await store.listPending()
+        #expect(pending.count == 4)
     }
 
     /// `.crashOnly` filters the pending list to `.crash` payloads. The

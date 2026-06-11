@@ -63,10 +63,13 @@ public actor ReportSender {
     ///     `EncryptedReportStore`).
     ///   - session: URL session to use for HTTP calls. Defaults to `.shared`.
     ///   - outboundGate: Per-flush verdict closure honouring DD-270's user
-    ///     mode setting. `nil` means the gate is bypassed — every batch
-    ///     flush proceeds as `.permitted`. Existing SDK consumers that
-    ///     pre-date the gate work unchanged; the harness wires a real
-    ///     closure at daemon boot.
+    ///     mode setting. `nil` is **fail-closed** (AUD-05-05 / CONV-19): a
+    ///     sender with no gate treats every flush as `.suppressed` and never
+    ///     touches the network. A consumer that wants outbound traffic MUST
+    ///     wire an explicit gate that returns its consented verdict; the
+    ///     harness wires a real closure at daemon boot. (Prior to DD-397
+    ///     Phase C the default was `.permitted`, which let an external SDK
+    ///     consumer that forgot to wire the gate phone home unconsented.)
     public init(
         config: BeaconConfig,
         store: any ReportStore,
@@ -189,15 +192,16 @@ public actor ReportSender {
     /// Consult the host-supplied ``OutboundGate`` and return the pending
     /// reports that would be flushed under the current verdict.
     ///
-    /// - `.suppressed` → returns `[]` without consulting the store.
+    /// - `.suppressed` (or no gate wired) → returns `[]` without consulting
+    ///   the store. A missing gate is fail-closed (AUD-05-05 / CONV-19).
     /// - `.crashOnly` → returns only pending reports with `.crash` payload.
-    /// - `.permitted` (or no gate wired) → returns the full pending list.
+    /// - `.permitted` → returns the full pending list.
     ///
     /// Public so tests can verify the gate behaviour without mocking
     /// ``URLSession``. Phase 0 chokepoint per
     /// `[[DD-270-implementation-plan]]`.
     public func sendableReports() async throws -> [BeaconReport] {
-        let decision = await outboundGate?() ?? .permitted
+        let decision = await outboundGate?() ?? .suppressed
         switch decision {
         case .suppressed:
             return []

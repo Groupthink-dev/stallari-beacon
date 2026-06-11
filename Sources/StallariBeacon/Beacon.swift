@@ -91,6 +91,15 @@ public actor Beacon {
     /// Background task for periodic report flushing.
     private var flushTask: Task<Void, Never>?
 
+    /// Interval between periodic flush attempts, in seconds.
+    ///
+    /// Defaults to 24h (AUD-05-04 / CONV-19 "dailyBatch" cadence). The retry
+    /// loop used to sleep 5 minutes forever — 288 unsolicited flush attempts
+    /// a day — which contradicted both the `BeaconOutboundMode.dailyBatch`
+    /// semantics and convention #19's no-chatty-phone-home posture. The host
+    /// gate still decides whether each daily flush actually sends anything.
+    private let flushInterval: TimeInterval
+
     // MARK: - Factory
 
     /// Creates and configures a Beacon instance.
@@ -120,7 +129,8 @@ public actor Beacon {
         outboundGate: OutboundGate? = nil,
         reportStore: (any ReportStore)? = nil,
         pathResolver: PathResolving? = nil,
-        identityProvider: (any BeaconIdentityProvider)? = nil
+        identityProvider: (any BeaconIdentityProvider)? = nil,
+        flushInterval: TimeInterval = 24 * 60 * 60
     ) async -> Beacon {
         if let pathResolver {
             BeaconPaths.configure(resolver: pathResolver)
@@ -134,7 +144,8 @@ public actor Beacon {
             customScrubPatterns: customScrubPatterns,
             store: reportStore,
             outboundGate: outboundGate,
-            identityProvider: identityProvider
+            identityProvider: identityProvider,
+            flushInterval: flushInterval
         )
     }
 
@@ -153,10 +164,12 @@ public actor Beacon {
         guardian: ProcessGuardian? = nil,
         circuitBreaker: CircuitBreaker? = nil,
         outboundGate: OutboundGate? = nil,
-        identityProvider: (any BeaconIdentityProvider)? = nil
+        identityProvider: (any BeaconIdentityProvider)? = nil,
+        flushInterval: TimeInterval = 24 * 60 * 60
     ) {
         self._config = config
         self.appInfo = appInfo
+        self.flushInterval = flushInterval
         self.scrubber = PIIScrubber(customPatterns: customScrubPatterns)
         let storeInstance: any ReportStore = store ?? FileReportStore()
         self.store = storeInstance
@@ -214,10 +227,11 @@ public actor Beacon {
         // Flush any pending reports (including just-recovered crashes).
         await flushPending()
 
-        // Start periodic flush — retries unsent reports every 5 minutes.
-        flushTask = Task { [weak self] in
+        // Start periodic flush — retries unsent reports on the daily cadence
+        // (AUD-05-04 / CONV-19). The host gate gates what actually sends.
+        flushTask = Task { [weak self, flushInterval] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(flushInterval * 1_000_000_000))
                 guard !Task.isCancelled else { break }
                 await self?.flushPending()
             }
@@ -443,6 +457,13 @@ public actor Beacon {
     /// The current beacon configuration.
     public var config: BeaconConfig {
         _config
+    }
+
+    /// The periodic-flush cadence in seconds (AUD-05-04 / CONV-19). Defaults
+    /// to 24h. Exposed for host diagnostics and conformance tests — the live
+    /// flush loop is driven off the same value.
+    public var flushIntervalSeconds: TimeInterval {
+        flushInterval
     }
 
     // MARK: - Identity (DD-270 Phase B)

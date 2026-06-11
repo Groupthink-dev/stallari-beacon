@@ -45,7 +45,10 @@ public enum OutboundDecision: Sendable, Equatable {
 /// decision; they MUST NOT make blocking I/O calls or take long enough that
 /// flush latency suffers.
 ///
-/// `nil` callers (legacy SDK consumers outside the harness, including
-/// tests that don't care about the gate) get default-permitted behaviour
-/// so existing wiring isn't broken by the introduction of this surface.
+/// A `nil` gate is **fail-closed** (AUD-05-05 / CONV-19): the SDK treats
+/// every flush as `.suppressed` and nothing leaves the device. A consumer
+/// that wants outbound traffic MUST wire an explicit gate returning its
+/// consented verdict. (Before DD-397 Phase C a `nil` gate defaulted to
+/// `.permitted`, which let an external SDK consumer phone home unconsented
+/// merely by forgetting to wire the gate.)
 public typealias OutboundGate = @Sendable () async -> OutboundDecision
